@@ -1,5 +1,7 @@
 #SpaceX Launch Analysis & Prediction Platform with Weather Integration and ML
-
+import streamlit as st
+import os
+import joblib
 import requests
 import pandas as pd
 import numpy as np
@@ -135,7 +137,6 @@ if __name__ == "__main__":
     df_prepared.to_csv("spacex_launch_data_preprocessed.csv", index=False)
 
 
-    import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 
@@ -281,6 +282,20 @@ plt.xlabel("Importance")
 plt.tight_layout()
 plt.show()
 
+MODEL_PATH = "rf_model.pkl"
+ENCODER_PATH = "encoders.pkl"
+
+@st.cache_resource
+def load_model():
+    if os.path.exists(MODEL_PATH) and os.path.exists(ENCODER_PATH):
+        model = joblib.load(MODEL_PATH)
+        encoders = joblib.load(ENCODER_PATH)
+        return model, encoders
+    return None, None
+
+# Load model here before creating tabs
+model, encoders = load_model()
+
 # streamlit code
 import streamlit as st
 import pandas as pd
@@ -325,6 +340,141 @@ for site, group in site_groups:
     folium.CircleMarker(location=[lat, lon], radius=10, color=color, fill=True, fill_color=color, popup=popup_text).add_to(m)
 
 st_data = st_folium(m, width=700, height=450)
+
+
+# Analytics Visualizations Section
+st.subheader("📊 Analytics Visualizations")
+
+# Use tabs to organize multiple graphs
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+    "Rocket Performance", "Launch Site Analysis", "Weather Impact",
+    "Environmental Factors", "Correlations", "Model Insights"
+])
+
+with tab1:
+    # Success Count by Rocket Type
+    st.write("### Launch Success Count by Rocket Type")
+    if not filtered_df.empty:
+        fig, ax = plt.subplots(figsize=(10,6))
+        sns.countplot(
+            data=filtered_df, 
+            x='rocket_name', 
+            hue=filtered_df['success'].map({True: 'Success', False: 'Failure'}),
+            ax=ax
+        )
+        ax.set_title('Launch Outcomes by Rocket Type')
+        ax.set_xticklabels(ax.get_xticklabels(), rotation=45)
+        ax.set_ylabel('Number of Launches')
+        ax.legend(title='Outcome')
+        st.pyplot(fig)
+    else:
+        st.warning("No data available for selected filters.")
+
+with tab2:
+    # Success Rate by Launch Site
+    st.write("### Launch Success Rate by Site")
+    if not filtered_df.empty:
+        fig, ax = plt.subplots(figsize=(10,6))
+        success_by_site = filtered_df.groupby(['launchpad_name', 'success']).size().unstack().fillna(0)
+        success_rate = success_by_site[True] / (success_by_site[True] + success_by_site[False])
+        success_rate.sort_values(ascending=False).plot(kind='bar', ax=ax, color='skyblue')
+        ax.set_title('Success Rate by Launch Site')
+        ax.set_ylabel('Success Rate')
+        ax.set_ylim(0, 1)
+        ax.set_xticklabels(ax.get_xticklabels(), rotation=45)
+        st.pyplot(fig)
+    else:
+        st.warning("No data available for selected filters.")
+
+with tab3:
+    # Weather Impact Analysis
+    col1, col2 = st.columns(2)
+    with col1:
+        st.write("#### Success Rate by Weather")
+        if not filtered_df.empty:
+            fig, ax = plt.subplots(figsize=(8,5))
+            weather_success = filtered_df.groupby('weather_condition')['success'].mean().sort_values(ascending=False)
+            weather_success.plot(kind='bar', ax=ax, color='coral')
+            ax.set_title('Success Rate by Weather Condition')
+            ax.set_ylabel('Success Rate')
+            ax.set_ylim(0, 1)
+            st.pyplot(fig)
+        else:
+            st.warning("No data available.")
+    
+    with col2:
+        st.write("#### Weather Condition Distribution")
+        if not filtered_df.empty:
+            fig, ax = plt.subplots(figsize=(8,5))
+            filtered_df['weather_condition'].value_counts().plot(kind='pie', autopct='%1.1f%%', ax=ax)
+            ax.set_title('Weather Condition Distribution')
+            ax.set_ylabel('')
+            st.pyplot(fig)
+        else:
+            st.warning("No data available.")
+
+with tab4:
+    # Environmental Factors
+    col1, col2 = st.columns(2)
+    with col1:
+        st.write("#### Temperature Distribution")
+        if not filtered_df.empty:
+            fig, ax = plt.subplots(figsize=(8,5))
+            sns.boxplot(x='success', y='temperature_C', data=filtered_df, ax=ax)
+            ax.set_title('Temperature vs. Launch Success')
+            ax.set_xlabel('Success')
+            ax.set_ylabel('Temperature (°C)')
+            st.pyplot(fig)
+        else:
+            st.warning("No data available.")
+    
+    with col2:
+        st.write("#### Wind Speed Distribution")
+        if not filtered_df.empty:
+            fig, ax = plt.subplots(figsize=(8,5))
+            sns.boxplot(x='success', y='wind_speed_mps', data=filtered_df, ax=ax)
+            ax.set_title('Wind Speed vs. Launch Success')
+            ax.set_xlabel('Success')
+            ax.set_ylabel('Wind Speed (m/s)')
+            st.pyplot(fig)
+        else:
+            st.warning("No data available.")
+
+with tab5:
+    # Correlation Matrix
+    st.write("### Feature Correlation Heatmap")
+    if not filtered_df.empty:
+        numeric_cols = [
+            'success', 'rocket_name_encoded', 'launchpad_name_encoded',
+            'temperature_C', 'wind_speed_mps', 'weather_condition_encoded',
+            'year', 'month', 'day'
+        ]
+        fig, ax = plt.subplots(figsize=(10,8))
+        sns.heatmap(
+            filtered_df[numeric_cols].corr(),
+            annot=True, cmap='coolwarm', fmt='.2f', ax=ax
+        )
+        ax.set_title('Feature Correlation Matrix')
+        st.pyplot(fig)
+    else:
+        st.warning("No data available for correlations.")
+
+with tab6:
+    # Model Insights
+    if model is not None:
+        st.write("### Model Feature Importances")
+        feature_cols = [
+            'rocket_name_encoded', 'launchpad_name_encoded', 'temperature_C',
+            'wind_speed_mps', 'weather_condition_encoded', 'year', 'month', 'day'
+        ]
+        fig, ax = plt.subplots(figsize=(8,6))
+        importances = pd.Series(model.feature_importances_, index=feature_cols).sort_values(ascending=False)
+        sns.barplot(x=importances, y=importances.index, palette="viridis", ax=ax)
+        ax.set_title('Feature Importances in Prediction Model')
+        ax.set_xlabel('Importance Score')
+        st.pyplot(fig)
+    else:
+        st.warning("Model not loaded - feature importances unavailable.")
 
 # Predictive tool
 st.subheader("🚀 Predict Launch Success")
